@@ -1,0 +1,337 @@
+require 'pry'
+
+class Move # < RPSGame
+  attr_accessor :move, :name, :human
+
+  @@history = {}
+
+  WINS = { 'rock' => ['scissors', 'lizard'],
+           'paper' => ['rock', 'spock'],
+           'scissors' => ['paper', 'lizard'],
+           'spock' => ['rock', 'scissors'],
+           'lizard' => ['paper', 'spock'] }
+
+  LOSES = { 'rock' => ['paper', 'spock'],
+            'paper' => ['scissors', 'lizard'],
+            'scissors' => ['rock', 'spock'],
+            'spock' => ['paper', 'lizard'],
+            'lizard' => ['scissors', 'rock'] }
+
+  def initialize(value, user)
+    convert_input(value) # @move setter method
+    init_move_history(user)
+    update_history(user)
+  end
+
+  def init_move_history(user)
+    return unless Move.history.keys.none? { |player| player == user }
+    Move.history[user] = []
+  end
+
+  def self.history
+    @@history
+  end
+
+  def update_history(user)
+    Move.history[user] << move
+  end
+
+  def vs(other_move)
+    return 'human' if WINS[move].include?(other_move.to_s)
+    return 'computer' if WINS[other_move.to_s].include?(move)
+  end
+
+  def to_s
+    @move
+  end
+
+  def str_to_move(value)
+    WINS.keys.each do |m|
+      @move = m if m.start_with?(value)
+    end
+  end
+
+  def num_to_move(value)
+    WINS.keys.each_with_index do |m, idx|
+      @move = m if (idx + 1).to_s == value
+    end
+  end
+
+  def convert_input(value)
+    if value == value.to_i.to_s
+      num_to_move(value)
+    else
+      str_to_move(value)
+    end
+  end
+end
+
+class Player
+  # Better way to give comp access to human name? IE without class variable?
+  @@human_name = ''
+
+  attr_accessor :move, :name, :human_name
+
+  def initialize
+    set_name
+  end
+
+  def to_s
+    name
+  end
+
+  def self.human_name
+    @@human_name
+  end
+end
+
+class Human < Player
+  def set_name
+    n = nil
+    loop do
+      print "What's your name? "
+      n = gets.chomp
+      puts ""
+      break unless n.empty?
+      puts "Sorry, must enter a value."
+    end
+    self.name = n
+    # Better way to give comp access to human name? IE without class variable?
+    Player.human_name << name
+  end
+
+  def choose
+    choice = nil
+    loop do
+      display_choices
+      choice = gets.chomp
+      if chose_display_history?(choice)
+        display_move_history
+        next
+      elsif valid_choice?(choice)
+        system 'clear'
+        break
+      end
+      puts "Sorry, invalid choice."
+    end
+    self.move = Move.new(choice, name)
+  end
+
+  def display_choices
+    puts "Please choose:"
+    puts ""
+    puts "1) rock,     2) paper"
+    puts "3) scissors  4) spock"
+    puts "5) lizard    6) display move history"
+    puts ""
+  end
+
+  def valid_choice?(choice)
+    Move::WINS.keys.any? { |key| key.start_with?(choice) } ||
+      (1..6).to_a.include?(choice.to_i)
+  end
+
+  def display_move_history
+    system 'clear'
+    Move.history.keys.each do |player|
+      puts "#{player}: " + Move.history[player].last(10).join(', ')
+      puts ''
+    end
+  end
+
+  def chose_display_history?(choice)
+    choice == '6' || 'display move history'.start_with?(choice)
+  end
+end
+
+class Computer < Player
+  attr_accessor :choices
+
+  BASE_CHOICES = ['rock', 'paper', 'scissors', 'lizard', 'spock']
+
+  def initialize
+    @choices = BASE_CHOICES
+  end
+
+  def choose
+    self.move = Move.new(choices.sample, name)
+  end
+end
+
+# I pick rock every time... :/
+class Ricky < Computer
+  def initialize
+    @name = 'Ricky'
+    @choices = BASE_CHOICES[0, 1]
+  end
+end
+
+# I pick a random favorite move and use it most of the time
+class Bill < Computer
+  attr_reader :favorite_move
+
+  def initialize
+    @name = 'Bill'
+    @favorite_move = BASE_CHOICES.sample
+    @choices = BASE_CHOICES + [favorite_move] * 5
+  end
+end
+
+# I pick a counter to your last move
+class Spike < Computer
+  attr_accessor :round
+
+  def initialize
+    super
+    @name = 'Spike'
+    @round = 0
+  end
+
+  def choose
+    super
+    update_choices if round > 1
+    self.round += 1
+  end
+
+  def update_choices
+    last_human_choice = Move.history[Player.human_name][-2]
+    counters = Move::LOSES[last_human_choice] # Redundant but kept for clarity
+    self.choices = counters
+  end
+end
+
+# I pick moves that beat your most chosen move so far this round
+class Lucy < Computer
+  def initialize
+    @name = 'Lucy'
+    @choices = BASE_CHOICES
+  end
+
+  def choose
+    self.move = Move.new(choices.sample, name)
+    update_choices
+  end
+
+  def update_choices
+    history = Move.history[Player.human_name]
+    most_chosen_arr = BASE_CHOICES.sort_by do |uniq_move|
+      history.count(uniq_move)
+    end
+    self.choices = Move::LOSES[most_chosen_arr[-1]]
+  end
+end
+
+class RPSGame
+  FINAL_SCORE = 5
+
+  attr_accessor :human, :computer, :score, :round_winner
+
+  def initialize
+    @human = Human.new
+    @computer = [Ricky.new, Bill.new, Spike.new, Lucy.new].sample
+    @score = { human.name => 0, computer.name => 0 }
+    @round_winner = nil
+  end
+
+  def update_round_winner
+    self.round_winner = case human.move.vs(computer.move)
+                        when 'human'
+                          human.name
+                        when 'computer'
+                          computer.name
+                        else
+                          'tie'
+                        end
+  end
+
+  def update_score
+    return if round_winner == 'tie'
+    score[round_winner] += 1
+  end
+
+  def reset_score
+    score.each { |player, _| score[player] = 0 }
+  end
+
+  def endgame_winner?
+    score.values.include?(FINAL_SCORE)
+  end
+
+  def play_again?
+    answer = nil
+    loop do
+      puts "Would you like to play again? (y/n)"
+      answer = gets.chomp[0].downcase
+      break if ['y', 'n'].include? answer
+      puts "Invalid input. Must be y or n."
+    end
+
+    return true if answer.downcase == 'y'
+    return false if answer.downcase == 'n'
+  end
+
+  def display_welcome_message
+    puts "Welcome to Rock, Paper, Scissors, Spock, Lizard!"
+    puts "Your opponent's name is #{computer.name}"
+    puts ""
+  end
+
+  def display_goodbye_message
+    puts "Thanks for playing Rock, Paper, Scissors, Spock, Lizard. Bye!"
+  end
+
+  # Rubocop complains about ABC size
+  def display_moves
+    puts "#{human.name} chose #{human.move}"
+    print "#{computer.name} chose"
+    dramatic_pause
+    puts computer.move.to_s
+  end
+
+  def display_winner
+    if round_winner == 'tie'
+      puts "It was a tie!"
+    else
+      puts "#{round_winner} won the round!"
+    end
+    puts ''
+  end
+
+  def display_endgame_winner
+    if score[human.name] == score[computer.name]
+      puts "At this point the score results in a tie!"
+    else
+      puts "#{round_winner} win's the entire game!"
+    end
+  end
+
+  def dramatic_pause
+    sleep 0.2
+    print "."
+    sleep 0.2
+    print "."
+    sleep 0.2
+    print "."
+    sleep 0.2
+  end
+
+  def play
+    system 'clear'
+    display_welcome_message
+
+    loop do
+      human.choose
+      computer.choose
+      update_round_winner
+      display_moves
+      update_score
+      display_winner
+      endgame_winner? ? display_endgame_winner : next
+      play_again? ? reset_score : break
+    end
+
+    display_goodbye_message
+  end
+end
+
+RPSGame.new.play
